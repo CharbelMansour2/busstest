@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15171B">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>Driver</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --ink:#15171B; --ink-2:#1E2229; --ink-3:#2E333B;
+  --signal:#FFB400; --live:#39B36B; --stale:#D2453F; --info:#3B82F6;
+  --dim:#8B9099;
+  --sans:"Barlow Condensed",system-ui,-apple-system,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overscroll-behavior:none}
+body{font-family:var(--sans);background:var(--ink);color:#fff;
+     display:flex;flex-direction:column;overflow:hidden;-webkit-text-size-adjust:100%}
+button{font-family:var(--sans);font-size:17px;font-weight:600;border:none;border-radius:3px;
+       padding:14px 16px;width:100%;background:var(--signal);color:var(--ink);cursor:pointer;
+       touch-action:manipulation}
+button:active{transform:scale(.985)}
+button.ghost{background:var(--ink-2);color:#fff;border:1px solid var(--ink-3)}
+button.small{width:auto;padding:10px 12px;font-size:15px}
+input{font-family:var(--sans);font-size:17px;padding:14px;width:100%;border-radius:3px;
+      border:1px solid var(--ink-3);background:var(--ink-2);color:#fff}
+input:focus{outline:2px solid var(--signal);outline-offset:-1px}
+
+#gate{position:fixed;inset:0;z-index:4000;background:var(--ink);
+      display:flex;align-items:center;justify-content:center;padding:26px}
+.card{width:100%;max-width:330px}
+.mark{font-family:var(--mono);font-size:12px;color:var(--signal);letter-spacing:.2em;margin-bottom:8px}
+.card h1{font-size:36px;font-weight:600;line-height:1;margin-bottom:24px}
+.card input{margin-bottom:11px}
+.err{font-size:15px;color:#FF8A80;min-height:22px;margin-top:10px}
+
+header{flex:0 0 auto;display:flex;align-items:center;gap:10px;
+       padding:calc(11px + env(safe-area-inset-top)) 15px 11px;border-bottom:1px solid var(--ink-3)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--stale);flex:0 0 auto}
+.dot.on{background:var(--live);animation:pulse 2.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(57,179,107,.55)}
+                 70%{box-shadow:0 0 0 7px rgba(57,179,107,0)}
+                 100%{box-shadow:0 0 0 0 rgba(57,179,107,0)}}
+@media(prefers-reduced-motion:reduce){.dot.on{animation:none}}
+header h1{flex:1;font-size:19px;font-weight:500}
+header .st{font-family:var(--mono);font-size:12px;color:var(--dim)}
+header button{width:auto;background:none;color:var(--dim);font-weight:400;font-size:14px;padding:5px 7px}
+
+#wrap{position:relative;flex:1 1 auto;min-height:0}
+#map{position:absolute;inset:0;background:#20242B}
+.leaflet-control-attribution{font-size:9px}
+.bus{width:38px;height:38px;display:grid;place-items:center;background:var(--signal);
+     border:3px solid var(--ink);border-radius:50%;box-shadow:0 3px 12px rgba(0,0,0,.45)}
+.bus svg{width:18px;height:18px;fill:var(--ink)}
+.pin{width:28px;height:28px;border-radius:50% 50% 50% 3px;transform:rotate(45deg);
+     background:var(--stale);border:2.5px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.45)}
+#banner{position:absolute;left:12px;right:12px;top:12px;z-index:700;display:none;
+        border-radius:4px;padding:12px 14px;font-size:16px;font-weight:600;
+        box-shadow:0 4px 16px rgba(0,0,0,.4)}
+#banner.warn{background:var(--signal);color:var(--ink)}
+#banner.note{background:#FFF4D6;color:#5C4813;font-weight:400;font-size:15px;line-height:1.45}
+
+#sheet{flex:0 0 auto;max-height:48vh;overflow-y:auto;border-top:1px solid var(--ink-3);
+       padding:12px 15px calc(14px + env(safe-area-inset-bottom))}
+.big{font-family:var(--mono);font-size:22px;font-weight:500;color:var(--signal);
+     text-align:center;padding:4px 0 8px}
+.req{padding:12px 0;border-bottom:1px solid var(--ink-3)}
+.req:last-child{border-bottom:none}
+.req .top{display:flex;align-items:baseline;gap:9px;margin-bottom:9px}
+.req .top b{font-size:19px;font-weight:500;flex:1;min-width:0;
+            overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.req .top span{font-family:var(--mono);font-size:12px;color:var(--dim);flex:0 0 auto}
+.req .btns{display:flex;gap:7px}
+.req .btns button{flex:1}
+.none{color:var(--dim);font-size:16px;text-align:center;padding:24px 0}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="card">
+    <div class="mark">DRIVER</div>
+    <h1>Sign in</h1>
+    <input id="gu" placeholder="Username" autocomplete="username" autocapitalize="none">
+    <input id="gp" type="password" placeholder="Password" autocomplete="current-password">
+    <button id="gbtn">Sign in</button>
+    <div class="err" id="gerr"></div>
+  </div>
+</div>
+
+<header>
+  <span class="dot" id="dot"></span>
+  <h1>Driver</h1>
+  <span class="st" id="state">connecting</span>
+  <button id="out">Sign out</button>
+</header>
+
+<div id="wrap">
+  <div id="banner"></div>
+  <div id="map"></div>
+</div>
+
+<div id="sheet">
+  <div class="big" id="count">0 waiting</div>
+  <div id="list"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  if (typeof L === "undefined")
+    document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"><\/script>');
+</script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script>
+  if (typeof firebase === "undefined")
+    document.write('<script src="https://cdn.jsdelivr.net/npm/firebase@10.8.0/firebase-app-compat.js"><\/script>');
+</script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script>
+  if (typeof firebase !== "undefined" && !firebase.database)
+    document.write('<script src="https://cdn.jsdelivr.net/npm/firebase@10.8.0/firebase-database-compat.js"><\/script>');
+</script>
+
+<script>
+/* ===================== settings ===================== */
+const DB_URL      = "https://buss1-fd9da-default-rtdb.firebaseio.com";
+const OFFLINE_MS  = 180000;
+const PLACEHOLDER = { lat: 40.7128, lng: -74.0060 };
+const START_VIEW  = [34.436, 35.850];
+
+/* Built-in driver login, so this works before you set anything up.
+   Any account under users/<name> with role "driver" also works. */
+const BUILTIN_USER = "driver";
+const BUILTIN_PASS = "1234";
+/* ==================================================== */
+
+const $ = id => document.getElementById(id);
+function banner(t, kind, ms) {
+  const b = $("banner");
+  b.className = kind || "warn"; b.textContent = t; b.style.display = "block";
+  if (ms) setTimeout(() => { b.style.display = "none"; }, ms);
+}
+
+if (typeof firebase === "undefined") {
+  document.body.innerHTML = '<div style="padding:36px;font-family:system-ui;color:#fff;line-height:1.7">' +
+    '<h2>Firebase did not load</h2><p>Check your connection or an ad blocker.</p></div>';
+  throw new Error("no sdk");
+}
+firebase.initializeApp({ databaseURL: DB_URL });
+const db = firebase.database();
+
+/* ===================== sign in ===================== */
+$("gbtn").onclick = () => {
+  const u = $("gu").value.trim(), p = $("gp").value.trim();
+  $("gerr").textContent = "";
+  if (!u || !p) { $("gerr").textContent = "Enter a username and password."; return; }
+
+  if (u.toLowerCase() === BUILTIN_USER && p === BUILTIN_PASS) { enter(); return; }
+
+  db.ref("users/" + u).once("value").then(s => {
+    const d = s.val();
+    if (d && d.password === p && (d.role === "driver" || d.role === "admin")) enter();
+    else if (d && d.password === p) $("gerr").textContent = "This account is not a driver.";
+    else $("gerr").textContent = "Wrong username or password.";
+  }).catch(e => { $("gerr").textContent = "Cannot reach the database: " + e.message; });
+};
+$("gp").addEventListener("keydown", e => { if (e.key === "Enter") $("gbtn").click(); });
+$("out").onclick = () => location.reload();
+
+function enter() {
+  $("gate").style.display = "none";
+  if ("Notification" in window && Notification.permission === "default") {
+    try { Notification.requestPermission(); } catch (e) {}
+  }
+  startMap();
+  watchBus();
+  watchRequests();
+}
+
+/* ===================== map ===================== */
+let map, busMarker;
+const pins = {};
+
+function startMap() {
+  map = L.map("map", { zoomControl:false }).setView(START_VIEW, 14);
+  L.control.zoom({ position:"topright" }).addTo(map);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+              { maxZoom:19, attribution:"&copy; OpenStreetMap" }).addTo(map);
+  setTimeout(() => map.invalidateSize(), 250);
+}
+
+const busIcon = L.divIcon({ className:"",
+  html:'<div class="bus"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg></div>',
+  iconSize:[38,38], iconAnchor:[19,19] });
+const pinIcon = L.divIcon({ className:"", html:'<div class="pin"></div>',
+  iconSize:[28,28], iconAnchor:[14,28] });
+
+/* ===================== bus ===================== */
+function flatten(logs) {
+  const out = [];
+  if (!logs) return out;
+  Object.entries(logs).forEach(([key, val]) => {
+    if (!val || typeof val !== "object") return;
+    if (typeof val.latitude === "number") {
+      out.push({ ts: val.timestamp || Number(key) || 0, lat: val.latitude, lng: val.longitude });
+      return;
+    }
+    Object.entries(val).forEach(([ms, p]) => {
+      if (p && typeof p.latitude === "number")
+        out.push({ ts:Number(ms) || 0, lat:p.latitude, lng:p.longitude });
+    });
+  });
+  return out.filter(p => p.ts > 0 &&
+      !(Math.abs(p.lat-PLACEHOLDER.lat) < 5e-4 && Math.abs(p.lng-PLACEHOLDER.lng) < 5e-4))
+    .sort((a,b) => a.ts - b.ts);
+}
+
+const two = n => String(n).padStart(2,"0");
+const clock = ts => { const d = new Date(ts); return two(d.getHours())+":"+two(d.getMinutes()); };
+function ago(ms) {
+  const s = Math.round(ms/1000);
+  if (s < 45) return "just now";
+  if (s < 3600) return Math.round(s/60) + " min";
+  if (s < 86400) return Math.round(s/3600) + " h";
+  return Math.round(s/86400) + " d";
+}
+
+let centred = false;
+
+function watchBus() {
+  db.ref("devices").on("value", s => {
+    const devs = s.val() || {};
+    const ids = Object.keys(devs);
+    if (!ids.length) { $("state").textContent = "no tracker"; return; }
+
+    const pts = flatten(devs[ids[0]].logs);
+    if (!pts.length) { $("state").textContent = "no fix yet"; return; }
+
+    const last = pts[pts.length-1];
+    const live = Date.now() - last.ts < OFFLINE_MS;
+
+    $("dot").className = "dot" + (live ? " on" : "");
+    $("state").textContent = live ? "live" : "not reporting";
+
+    if (!busMarker) busMarker = L.marker([last.lat,last.lng], { icon:busIcon, zIndexOffset:400 }).addTo(map);
+    else busMarker.setLatLng([last.lat,last.lng]);
+    busMarker.setOpacity(live ? 1 : .5);
+
+    if (!centred) { map.setView([last.lat,last.lng], 15); centred = true; }
+  }, e => banner(/permission/i.test(e.message)
+      ? "The database is blocking reads. Set \".read\": true in the rules."
+      : "Database error: " + e.message, "note"));
+}
+
+/* ===================== requests ===================== */
+const openedAt = Date.now();
+let requests = {};
+
+function watchRequests() {
+  db.ref("requests").on("value", s => {
+    requests = s.val() || {};
+    draw();
+  }, e => console.warn("requests:", e.message));
+
+  db.ref("requests").on("child_added",   n => maybeAlert(n));
+  db.ref("requests").on("child_changed", n => maybeAlert(n));
+}
+
+function waitingList() {
+  return Object.entries(requests)
+    .filter(([, r]) => r && r.status === "waiting")
+    .sort((a,b) => (a[1].ts||0) - (b[1].ts||0));
+}
+
+function maybeAlert(snap) {
+  const r = snap.val();
+  if (!r || r.status !== "waiting" || !r.ts || r.ts <= openedAt) return;
+
+  banner((r.name || "Someone") + " is waiting for a pickup", "warn", 9000);
+  try {
+    if ("Notification" in window && Notification.permission === "granted")
+      new Notification("Pickup request", { body: (r.name || "Someone") + " is waiting" });
+  } catch (e) {}
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 880; g.gain.value = .12;
+    o.start(); o.stop(ctx.currentTime + .35);
+  } catch (e) {}
+  if (navigator.vibrate) navigator.vibrate([180,90,180]);
+}
+
+/* Keeps a record of the pickup, then clears it from the live list.
+   The admin page reads this back and shows the last 72 hours. */
+function archive(key, r, outcome) {
+  const entry = {
+    name:  r.name  || "",
+    phone: r.phone || "",
+    lat: r.lat, lng: r.lng,
+    ts: r.ts || Date.now(),                       // when they asked
+    endedTs: firebase.database.ServerValue.TIMESTAMP,   // when it finished
+    outcome: outcome,                             // picked_up | cancelled
+    by: "driver"
+  };
+  db.ref("history").push(entry)
+    .then(() => db.ref("requests/" + key).remove())
+    .catch(e => {
+      console.warn("archive failed:", e.message);
+      db.ref("requests/" + key).remove();         // clear it either way
+    });
+}
+
+function draw() {
+  const active = waitingList();
+  $("count").textContent = active.length + " waiting";
+
+  const keep = {};
+  active.forEach(([key, r]) => {
+    keep[key] = true;
+    if (pins[key]) { pins[key].setLatLng([r.lat, r.lng]); return; }
+    pins[key] = L.marker([r.lat, r.lng], { icon: pinIcon })
+                  .addTo(map).bindPopup((r.name || "Passenger") + "<br>" + (r.phone || ""));
+  });
+  Object.keys(pins).forEach(k => {
+    if (!keep[k]) { map.removeLayer(pins[k]); delete pins[k]; }
+  });
+
+  const box = $("list");
+  if (!active.length) { box.innerHTML = '<div class="none">Nobody is waiting.</div>'; return; }
+
+  box.innerHTML = "";
+  active.forEach(([key, r]) => {
+    const row = document.createElement("div");
+    row.className = "req";
+    row.innerHTML = '<div class="top"><b>' + (r.name || "Passenger") + '</b>' +
+                    '<span>' + clock(r.ts) + ' · ' + ago(Date.now() - r.ts) + '</span></div>';
+
+    const btns = document.createElement("div");
+    btns.className = "btns";
+
+    const show = document.createElement("button");
+    show.className = "ghost small"; show.textContent = "Show";
+    show.onclick = () => map.setView([r.lat, r.lng], 17);
+
+    const call = document.createElement("button");
+    call.className = "ghost small"; call.textContent = "Call";
+    call.onclick = () => { if (r.phone) window.location.href = "tel:" + r.phone; };
+    if (!r.phone) call.disabled = true;
+
+    const nav = document.createElement("button");
+    nav.className = "ghost small"; nav.textContent = "Navigate";
+    nav.onclick = () => window.open(
+      "https://www.google.com/maps/dir/?api=1&destination=" + r.lat + "," + r.lng, "_blank");
+
+    const done = document.createElement("button");
+    done.className = "small"; done.textContent = "Done";
+    done.onclick = () => archive(key, r, "picked_up");
+
+    btns.append(show, call, nav, done);
+    row.append(btns);
+    box.append(row);
+  });
+}
+
+setInterval(draw, 30000);   // keeps the waiting times honest
+</script>
+</body>
+</html>
