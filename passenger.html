@@ -9,7 +9,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <title>Bus</title>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 
 <style>
@@ -100,7 +101,7 @@ header button{width:auto;background:none;color:var(--dim);font-weight:400;font-s
   <span class="dot" id="dot"></span>
   <h1>Bus</h1>
   <span class="st" id="state">connecting</span>
-  <button id="out">Change</button>
+  <button id="refreshBtn">Refresh pin</button>
 </header>
 
 <div id="wrap">
@@ -129,6 +130,8 @@ header button{width:auto;background:none;color:var(--dim);font-weight:400;font-s
   <div id="waiting" style="display:none">
     <button class="danger" id="cancelReq">Cancel my request</button>
   </div>
+
+  <button class="ghost" id="out" style="font-size:15px;padding:11px">Change name or phone</button>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -203,6 +206,21 @@ $("gbtn").onclick = () => {
 };
 $("gphone").addEventListener("keydown", e => { if (e.key === "Enter") $("gbtn").click(); });
 
+/* Re-sends where you are now, so the driver sees your latest position
+   if you have moved since asking. */
+$("refreshBtn").onclick = () => {
+  db.ref("requests/" + myKey).once("value").then(s => {
+    const r = s.val();
+    if (!r || r.status !== "waiting") {
+      banner("You have no pickup request yet. Send your location first.", "note", 6000);
+      return;
+    }
+    $("refreshBtn").textContent = "…";
+    $("gpsBtn").click();
+    setTimeout(() => { $("refreshBtn").textContent = "Refresh pin"; }, 2500);
+  }).catch(e => banner("Could not check: " + e.message, "note", 6000));
+};
+
 $("out").onclick = () => {
   if (myKey) db.ref("requests/" + myKey).remove().catch(() => {});
   store.del("bus_name"); store.del("bus_phone");
@@ -230,22 +248,30 @@ function enter(name, phone) {
   }
 }
 
-/* auto sign-in if we already know them */
-(function () {
-  const n = store.get("bus_name"), p = store.get("bus_phone");
-  if (n && p) enter(n, p);
-})();
-
 /* ===================== map ===================== */
 let map, busMarker, myPin, started = false;
 
+/* Leaflet measures the container when the map is created. If that happens
+   before the browser has laid the page out, it reads zero and draws nothing.
+   This re-measures whenever the layout could have changed. */
+function fixMapSize() {
+  if (!map) return;
+  map.invalidateSize();
+}
+window.addEventListener("resize", fixMapSize);
+window.addEventListener("orientationchange", () => setTimeout(fixMapSize, 300));
+document.addEventListener("visibilitychange", () => { if (!document.hidden) setTimeout(fixMapSize, 200); });
+
 function startMap() {
-  if (map) { setTimeout(() => map.invalidateSize(), 150); return; }   // never build it twice
+  if (map) { setTimeout(fixMapSize, 150); return; }   // never build it twice
   map = L.map("map", { zoomControl:false }).setView(START_VIEW, 14);
   L.control.zoom({ position:"topright" }).addTo(map);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
               { maxZoom:19, attribution:"&copy; OpenStreetMap" }).addTo(map);
-  setTimeout(() => map.invalidateSize(), 250);
+
+  /* Several passes, because on a phone the address bar and safe areas can
+     change the available height a moment after the page appears. */
+  [60, 250, 700, 1500].forEach(t => setTimeout(fixMapSize, t));
 }
 
 const busIcon = L.divIcon({ className:"",
@@ -435,6 +461,18 @@ $("cancelReq").onclick = () => {
   .then(() => banner("Request cancelled.", "info", 4000))
   .catch(e => banner("Could not cancel: " + e.message, "note", 6000));
 };
+
+/* ===================== auto sign-in =====================
+   Runs last, on purpose. Everything above must be defined first, and the
+   browser must have laid the page out, or the map is built with no height
+   and stays blank. */
+function autoSignIn() {
+  const n = store.get("bus_name"), p = store.get("bus_phone");
+  if (n && p) enter(n, p);
+}
+
+if (document.readyState === "complete") setTimeout(autoSignIn, 60);
+else window.addEventListener("load", () => setTimeout(autoSignIn, 60));
 </script>
 </body>
 </html>
